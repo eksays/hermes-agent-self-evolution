@@ -18,7 +18,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from evolution.core.config import EvolutionConfig, get_hermes_agent_path
+from evolution.core.config import EvolutionConfig, get_hermes_agent_path, resolve_model
 from evolution.core.dataset_builder import SyntheticDatasetBuilder, EvalDataset, GoldenDatasetLoader
 from evolution.core.external_importers import build_dataset_from_external
 from evolution.core.fitness import skill_fitness_metric, LLMJudge, FitnessScore
@@ -38,11 +38,14 @@ def evolve(
     iterations: int = 10,
     eval_source: str = "synthetic",
     dataset_path: Optional[str] = None,
-    optimizer_model: str = "openai/gpt-4.1",
-    eval_model: str = "openai/gpt-4.1-mini",
+    optimizer_model: str = "openai/gpt-4o-mini",
+    eval_model: str = "openai/gpt-4o-mini",
     hermes_repo: Optional[str] = None,
     run_tests: bool = False,
     dry_run: bool = False,
+    create_pr: bool = False,
+    benchmark_gate: bool = False,
+    skip_semantic: bool = False,
 ):
     """Main evolution function — orchestrates the full optimization loop."""
 
@@ -55,6 +58,25 @@ def evolve(
     )
     if hermes_repo:
         config.hermes_agent_path = Path(hermes_repo)
+
+    # Resolve model aliases
+    eval_model = resolve_model(eval_model)
+    optimizer_model = resolve_model(optimizer_model)
+
+    if not dry_run:
+        # Pre-flight: verify optimizer model responds
+        console.print(f"\n[bold]Pre-flight check[/bold]")
+        try:
+            test_lm = dspy.LM(optimizer_model)
+            test_lm("respond with OK")
+            console.print(f"  [green]✓ Optimizer model '{optimizer_model}' OK[/green]")
+        except Exception as e:
+            console.print(f"[red]✗ Optimizer model '{optimizer_model}' not available: {e}[/red]")
+            console.print("[yellow]  Check your LITELLM_MODEL / OPENAI_API_KEY / OPENROUTER_API_KEY settings[/yellow]")
+            sys.exit(1)
+
+        if optimizer_model == eval_model:
+            console.print("[yellow]⚠ Optimizer and eval model are the same — fitness scores may be biased[/yellow]")
 
     # ── 1. Find and load the skill ──────────────────────────────────────
     console.print(f"\n[bold cyan]** Hermes Agent Self-Evolution **[/bold cyan] — Evolving skill: [bold]{skill_name}[/bold]\n")
@@ -69,6 +91,9 @@ def evolve(
     console.print(f"  Name: {skill['name']}")
     console.print(f"  Size: {len(skill['raw']):,} chars")
     console.print(f"  Description: {skill['description'][:80]}...")
+
+    if skip_semantic:
+        config.enable_semantic_check = False
 
     if dry_run:
         console.print(f"\n[bold green]DRY RUN — setup validated successfully.[/bold green]")
@@ -156,8 +181,19 @@ def evolve(
 
     start_time = time.time()
 
+    # Create LLM judge for fitness scoring
+    llm_judge = LLMJudge(config)
+
+    # Create metric with judge wired in
+    def metric_with_judge(example, prediction, trace=None, pred_name=None, pred_trace=None):
+        return skill_fitness_metric(
+            example, prediction,
+            trace=trace, pred_name=pred_name, pred_trace=pred_trace,
+            judge=llm_judge,
+        )
+
     optimizer = dspy.GEPA(
-        metric=skill_fitness_metric,
+        metric=metric_with_judge,
         max_full_evals=iterations,
         reflection_lm=reflection_lm,
     )
@@ -189,6 +225,10 @@ def evolve(
     # Also verify the reassembled file preserves valid skill structure
     structure_result = validator._check_skill_structure(evolved_full)
     evolved_constraints.append(structure_result)
+
+    # Check semantic preservation (compares evolved body to original body)
+    semantic_result = validator._check_semantic_preservation(evolved_body, skill["body"])
+    evolved_constraints.append(semantic_result)
 
     all_pass = True
     for c in evolved_constraints:
@@ -288,6 +328,39 @@ def evolve(
 
     console.print(f"\n  Output saved to {output_dir}/")
 
+    # ── 11. Create PR (optional) ─────────────────────────────────────
+    if create_pr and improvement > 0 and all_pass:
+        try:
+            from evolution.core.pr_builder import create_evolution_branch
+            branch_name = create_evolution_branch(
+                skill_name=skill_name,
+                evolved_skill_path=output_dir / "evolved_skill.md",
+                baseline_skill_path=output_dir / "baseline_skill.md",
+                metrics_path=output_dir / "metrics.json",
+                hermes_repo=config.hermes_agent_path,
+            )
+            console.print(f"\n[bold green]✓ Created branch: {branch_name}[/bold green]")
+        except Exception as e:
+            console.print(f"[red]✗ Failed to create PR: {e}[/red]")
+            console.print("[yellow]  Ensure gh CLI is authenticated and HERMES_AGENT_REPO is clean[/yellow]")
+
+    # ── 12. Benchmark gate (optional) ─────────────────────────────────
+    if benchmark_gate and improvement > 0:
+        try:
+            from evolution.core.benchmark_gate import run_benchmark_gate
+            gate_result = run_benchmark_gate(
+                skill_name=skill_name,
+                hermes_repo=config.hermes_agent_path,
+                baseline_module=baseline_module,
+                evolved_module=optimized_module,
+            )
+            if not gate_result.passed:
+                console.print(f"[red]✗ Benchmark gate FAILED: {gate_result.message}[/red]")
+            else:
+                console.print(f"[green]✓ Benchmark gate passed: {gate_result.message}[/green]")
+        except Exception as e:
+            console.print(f"[yellow]⚠ Benchmark gate error (non-fatal): {e}[/yellow]")
+
     if improvement > 0:
         console.print(f"\n[bold green]✓ Evolution improved skill by {improvement:+.3f} ({improvement/max(0.001, avg_baseline)*100:+.1f}%)[/bold green]")
         console.print(f"  Review the diff: diff {output_dir}/baseline_skill.md {output_dir}/evolved_skill.md")
@@ -302,12 +375,18 @@ def evolve(
 @click.option("--eval-source", default="synthetic", type=click.Choice(["synthetic", "golden", "sessiondb"]),
               help="Source for evaluation dataset")
 @click.option("--dataset-path", default=None, help="Path to existing eval dataset (JSONL)")
-@click.option("--optimizer-model", default="openai/gpt-4.1", help="Model for GEPA reflections")
-@click.option("--eval-model", default="openai/gpt-4.1-mini", help="Model for evaluations")
+@click.option("--optimizer-model", default="openai/gpt-4o-mini", help="Model for GEPA reflections")
+@click.option("--eval-model", default="openai/gpt-4o-mini", help="Model for evaluations")
 @click.option("--hermes-repo", default=None, help="Path to hermes-agent repo")
 @click.option("--run-tests", is_flag=True, help="Run full pytest suite as constraint gate")
 @click.option("--dry-run", is_flag=True, help="Validate setup without running optimization")
-def main(skill, iterations, eval_source, dataset_path, optimizer_model, eval_model, hermes_repo, run_tests, dry_run):
+@click.option("--pr", "create_pr", is_flag=True, default=False,
+              help="Create a git branch + PR with the evolved skill")
+@click.option("--benchmark-gate", is_flag=True, default=False,
+              help="Run TBLite fast subset as regression gate (expensive)")
+@click.option("--skip-semantic", is_flag=True, default=False,
+              help="Skip semantic preservation check")
+def main(skill, iterations, eval_source, dataset_path, optimizer_model, eval_model, hermes_repo, run_tests, dry_run, create_pr, benchmark_gate, skip_semantic):
     """Evolve a Hermes Agent skill using DSPy + GEPA optimization."""
     evolve(
         skill_name=skill,
@@ -319,6 +398,9 @@ def main(skill, iterations, eval_source, dataset_path, optimizer_model, eval_mod
         hermes_repo=hermes_repo,
         run_tests=run_tests,
         dry_run=dry_run,
+        create_pr=create_pr,
+        benchmark_gate=benchmark_gate,
+        skip_semantic=skip_semantic,
     )
 
 
