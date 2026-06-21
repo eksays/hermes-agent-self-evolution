@@ -111,17 +111,33 @@ def _words(text: str) -> set:
     return set(re.findall(r'\w+', text.lower()))
 
 
+# Cache for LLM judge results to avoid re-scoring same (task, output) pairs
+_judge_cache: dict[str, float] = {}
+_judge_cache_max_entries = 500
+
+
+def _judge_cache_key(task_input: str, agent_output: str) -> str:
+    import hashlib
+    raw = f"{task_input}||{agent_output}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
 def skill_fitness_metric(
     example: dspy.Example,
     prediction: dspy.Prediction,
     trace=None,
     pred_name: Optional[str] = None,
     pred_trace=None,
+    judge: Optional[LLMJudge] = None,
 ) -> float:
     """DSPy-compatible metric function for GEPA skill optimization.
 
-    Hybrid metric: uses keyword overlap + instruction-following heuristics.
-    Fast, deterministic, and provides rich gradient for GEPA.
+    Dual-mode:
+    - If a judge is provided: use LLM-as-judge with rubric scoring (cached).
+    - Fallback: keyword overlap + instruction-following heuristics.
+
+    The judge mode is preferred for accuracy; heuristic mode is faster
+    and works without API calls.
     """
     agent_output = getattr(prediction, "output", "") or ""
     expected = getattr(example, "expected_behavior", "") or ""
@@ -131,6 +147,27 @@ def skill_fitness_metric(
     if not agent_output.strip():
         return 0.0
 
+    # LLM-as-judge mode
+    if judge is not None:
+        cache_key = _judge_cache_key(task, agent_output)
+        if cache_key in _judge_cache:
+            return _judge_cache[cache_key]
+
+        score_result = judge.score(
+            task_input=task,
+            expected_behavior=expected,
+            agent_output=agent_output,
+            skill_text=skill_text,
+        )
+        result = score_result.composite
+
+        # Store in cache (evict oldest if full)
+        if len(_judge_cache) >= _judge_cache_max_entries:
+            _judge_cache.clear()
+        _judge_cache[cache_key] = result
+        return result
+
+    # ── Heuristic fallback (original logic) ──
     score = 0.0
     output_words = _words(agent_output)
 
@@ -143,7 +180,7 @@ def skill_fitness_metric(
         overlap = len(expected_words & output_words) / len(expected_words)
         score += 0.4 * overlap
     else:
-        score += 0.15  # Partial if no expected behavior
+        score += 0.15
 
     # 3. Task relevance (0-0.15)
     task_words = _words(task)
@@ -152,24 +189,20 @@ def skill_fitness_metric(
         score += 0.15 * overlap
 
     # 4. Procedure following (0-0.2)
-    # Check if key action words from skill appear in output
     if skill_text.strip():
         skill_lower = skill_text.lower()
-        # Extract numbered steps and bullet point keywords
         step_keywords = set()
         for match in re.finditer(r'(?:^|\n)\s*(?:\d+\.|[-*])\s+(.+?)(?:\n|$)', skill_lower):
             line = match.group(1).strip()
-            # Take first 3 significant words from each step
             words = [w for w in re.findall(r'\b[a-z]{3,}\b', line)][:3]
             step_keywords.update(words)
         if step_keywords:
             overlap = len(step_keywords & output_words) / len(step_keywords)
             score += 0.2 * overlap
     else:
-        score += 0.1  # Partial if no skill text
+        score += 0.1
 
-    # 5. Length normalization penalty (0-0.1)
-    # Very short (<10 words) or very long (>500 words) responses get penalized
+    # 5. Length normalization penalty
     word_count = len(output_words)
     if word_count < 5:
         score -= 0.15
@@ -181,6 +214,11 @@ def skill_fitness_metric(
         score -= 0.05
 
     return max(0.0, min(1.0, score))
+
+
+def reset_judge_cache():
+    """Clear the LLM judge result cache. Used in tests."""
+    _judge_cache.clear()
 
 
 def _parse_score(value) -> float:
