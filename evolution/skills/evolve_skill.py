@@ -57,7 +57,7 @@ def evolve(
         config.hermes_agent_path = Path(hermes_repo)
 
     # ── 1. Find and load the skill ──────────────────────────────────────
-    console.print(f"\n[bold cyan]🧬 Hermes Agent Self-Evolution[/bold cyan] — Evolving skill: [bold]{skill_name}[/bold]\n")
+    console.print(f"\n[bold cyan]** Hermes Agent Self-Evolution **[/bold cyan] — Evolving skill: [bold]{skill_name}[/bold]\n")
 
     skill_path = find_skill(skill_name, config.hermes_agent_path)
     if not skill_path:
@@ -183,8 +183,9 @@ def evolve(
     console.print(f"\n[bold]Validating evolved skill[/bold]")
 
     # Validate size, growth, and non-empty on the evolved BODY (not the full
-    # file with frontmatter — that would inflate size and growth stats)
-    evolved_constraints = validator.validate_all(evolved_body, "skill", baseline_text=skill["body"])
+    # file with frontmatter — that would inflate size and growth stats).
+    # Use "skill_body" type to skip frontmatter structure checks on the body.
+    evolved_constraints = validator.validate_all(evolved_body, "skill_body", baseline_text=skill["body"])
     # Also verify the reassembled file preserves valid skill structure
     structure_result = validator._check_skill_structure(evolved_full)
     evolved_constraints.append(structure_result)
@@ -202,7 +203,7 @@ def evolve(
         # Still save for inspection
         output_path = Path("output") / skill_name / "evolved_FAILED.md"
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(evolved_full)
+        output_path.write_text(evolved_full, encoding="utf-8")
         console.print(f"  Saved failed variant to {output_path}")
         return
 
@@ -260,10 +261,10 @@ def evolve(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Save evolved skill
-    (output_dir / "evolved_skill.md").write_text(evolved_full)
+    (output_dir / "evolved_skill.md").write_text(evolved_full, encoding="utf-8")
 
     # Save baseline for comparison
-    (output_dir / "baseline_skill.md").write_text(skill["raw"])
+    (output_dir / "baseline_skill.md").write_text(skill["raw"], encoding="utf-8")
 
     # Save metrics
     metrics = {

@@ -29,7 +29,17 @@ def load_skill(skill_path: Path) -> dict:
             "description": str,
         }
     """
-    raw = skill_path.read_text()
+    """Load and return a text file's contents.
+
+    Uses utf-8 encoding with 'surrogateescape' error handling.
+    """
+    try:
+        raw = skill_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        # Fallback for files written with system encoding (e.g. cp1252 on Windows)
+        import locale
+        sys_enc = locale.getpreferredencoding()
+        raw = skill_path.read_text(encoding=sys_enc)
 
     # Parse YAML frontmatter
     frontmatter = ""

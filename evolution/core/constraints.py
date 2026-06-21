@@ -46,7 +46,7 @@ class ConstraintValidator:
         # 3. Non-empty
         results.append(self._check_non_empty(artifact_text))
 
-        # 4. Structural integrity
+        # 4. Structural integrity (only for full skills, not bodies)
         if artifact_type == "skill":
             results.append(self._check_skill_structure(artifact_text))
 
