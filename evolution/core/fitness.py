@@ -104,11 +104,21 @@ class LLMJudge:
         )
 
 
-def skill_fitness_metric(example: dspy.Example, prediction: dspy.Prediction, trace=None) -> float:
-    """DSPy-compatible metric function for skill optimization.
+def skill_fitness_metric(
+    example: dspy.Example,
+    prediction: dspy.Prediction,
+    trace=None,
+    pred_name: Optional[str] = None,
+    pred_trace=None,
+) -> float:
+    """DSPy-compatible metric function for GEPA skill optimization.
 
-    This is what gets passed to dspy.GEPA(metric=...).
-    Returns a float 0-1 score.
+    GEPA requires a 5-argument signature:
+        (gold, pred, trace, pred_name, pred_trace)
+
+    Returns a float 0-1 score with higher = better.
+    Enhanced to provide more gradient than simple keyword overlap,
+    using instruction following heuristics for richer signal.
     """
     # The prediction should have an 'output' field with the agent's response
     agent_output = getattr(prediction, "output", "") or ""
@@ -118,20 +128,30 @@ def skill_fitness_metric(example: dspy.Example, prediction: dspy.Prediction, tra
     if not agent_output.strip():
         return 0.0
 
-    # Quick heuristic scoring (for speed during optimization)
-    # Full LLM-as-judge scoring is expensive — use it selectively
-    score = 0.5  # Base score for non-empty output
+    # Multi-dimensional heuristic scoring for richer gradient
+    score = 0.0
 
-    # Check if key phrases from expected behavior appear
-    expected_lower = expected.lower()
+    # 1. Non-empty base (0.2)
+    if agent_output.strip():
+        score += 0.2
+
+    # 2. Instruction following — check if output addresses the task (0.3)
+    task_lower = task.lower()
     output_lower = agent_output.lower()
+    task_keywords = set(task_lower.split())
+    if task_keywords:
+        overlap = len(task_keywords & set(output_lower.split())) / len(task_keywords)
+        score += 0.3 * overlap
 
-    # Simple keyword overlap as a fast proxy
-    expected_words = set(expected_lower.split())
-    output_words = set(output_lower.split())
-    if expected_words:
-        overlap = len(expected_words & output_words) / len(expected_words)
-        score = 0.3 + (0.7 * overlap)
+    # 3. Expected behavior coverage (0.5)
+    expected_lower = expected.lower()
+    if expected_lower.strip():
+        expected_words = set(expected_lower.split())
+        output_words = set(output_lower.split())
+        overlap = len(expected_words & output_words) / max(1, len(expected_words))
+        score += 0.5 * overlap
+    else:
+        score += 0.3  # Partial credit if no expected behavior provided
 
     return min(1.0, max(0.0, score))
 

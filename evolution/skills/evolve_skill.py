@@ -138,8 +138,11 @@ def evolve(
     console.print(f"  Eval model: {eval_model}")
 
     # Configure DSPy
-    lm = dspy.LM(eval_model)
-    dspy.configure(lm=lm)
+    eval_lm = dspy.LM(eval_model)
+    dspy.configure(lm=eval_lm)
+
+    # GEPA requires a reflection LM — use the optimizer_model with higher temperature
+    reflection_lm = dspy.LM(optimizer_model, temperature=1.0)
 
     # Create the baseline skill module
     baseline_module = SkillModule(skill["body"])
@@ -153,40 +156,39 @@ def evolve(
 
     start_time = time.time()
 
-    try:
-        optimizer = dspy.GEPA(
-            metric=skill_fitness_metric,
-            max_steps=iterations,
-        )
+    optimizer = dspy.GEPA(
+        metric=skill_fitness_metric,
+        max_full_evals=iterations,
+        reflection_lm=reflection_lm,
+    )
 
-        optimized_module = optimizer.compile(
-            baseline_module,
-            trainset=trainset,
-            valset=valset,
-        )
-    except Exception as e:
-        # Fall back to MIPROv2 if GEPA isn't available in this DSPy version
-        console.print(f"[yellow]GEPA not available ({e}), falling back to MIPROv2[/yellow]")
-        optimizer = dspy.MIPROv2(
-            metric=skill_fitness_metric,
-            auto="light",
-        )
-        optimized_module = optimizer.compile(
-            baseline_module,
-            trainset=trainset,
-        )
+    optimized_module = optimizer.compile(
+        baseline_module,
+        trainset=trainset,
+        valset=valset,
+    )
 
     elapsed = time.time() - start_time
     console.print(f"\n  Optimization completed in {elapsed:.1f}s")
 
     # ── 6. Extract evolved skill text ───────────────────────────────────
-    # The optimized module's instructions contain the evolved skill text
+    # skill_text reads from the optimized module's predictor signature instructions
     evolved_body = optimized_module.skill_text
+    if not evolved_body or evolved_body.isspace():
+        console.print("[red]✗ Evolved body is empty — using baseline as fallback[/red]")
+        evolved_body = skill["body"]
     evolved_full = reassemble_skill(skill["frontmatter"], evolved_body)
 
     # ── 7. Validate evolved skill ───────────────────────────────────────
     console.print(f"\n[bold]Validating evolved skill[/bold]")
+
+    # Validate size, growth, and non-empty on the evolved BODY (not the full
+    # file with frontmatter — that would inflate size and growth stats)
     evolved_constraints = validator.validate_all(evolved_body, "skill", baseline_text=skill["body"])
+    # Also verify the reassembled file preserves valid skill structure
+    structure_result = validator._check_skill_structure(evolved_full)
+    evolved_constraints.append(structure_result)
+
     all_pass = True
     for c in evolved_constraints:
         icon = "✓" if c.passed else "✗"
@@ -213,7 +215,7 @@ def evolve(
     evolved_scores = []
     for ex in holdout_examples:
         # Score baseline
-        with dspy.context(lm=lm):
+        with dspy.context(lm=eval_lm):
             baseline_pred = baseline_module(task_input=ex.task_input)
             baseline_score = skill_fitness_metric(ex, baseline_pred)
             baseline_scores.append(baseline_score)
