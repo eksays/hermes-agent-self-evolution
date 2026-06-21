@@ -4,6 +4,8 @@ Uses LLM-as-judge with rubrics to score agent outputs.
 Supports length penalties and multi-dimensional scoring.
 """
 
+import re
+
 import dspy
 from dataclasses import dataclass
 from typing import Optional
@@ -104,6 +106,11 @@ class LLMJudge:
         )
 
 
+def _words(text: str) -> set:
+    """Lowercase tokenization stripping punctuation for overlap matching."""
+    return set(re.findall(r'\w+', text.lower()))
+
+
 def skill_fitness_metric(
     example: dspy.Example,
     prediction: dspy.Prediction,
@@ -113,47 +120,67 @@ def skill_fitness_metric(
 ) -> float:
     """DSPy-compatible metric function for GEPA skill optimization.
 
-    GEPA requires a 5-argument signature:
-        (gold, pred, trace, pred_name, pred_trace)
-
-    Returns a float 0-1 score with higher = better.
-    Enhanced to provide more gradient than simple keyword overlap,
-    using instruction following heuristics for richer signal.
+    Hybrid metric: uses keyword overlap + instruction-following heuristics.
+    Fast, deterministic, and provides rich gradient for GEPA.
     """
-    # The prediction should have an 'output' field with the agent's response
     agent_output = getattr(prediction, "output", "") or ""
     expected = getattr(example, "expected_behavior", "") or ""
     task = getattr(example, "task_input", "") or ""
+    skill_text = getattr(example, "skill_text", "") or ""
 
     if not agent_output.strip():
         return 0.0
 
-    # Multi-dimensional heuristic scoring for richer gradient
     score = 0.0
+    output_words = _words(agent_output)
 
-    # 1. Non-empty base (0.2)
-    if agent_output.strip():
-        score += 0.2
+    # 1. Non-empty base (0-0.15)
+    score += 0.15
 
-    # 2. Instruction following — check if output addresses the task (0.3)
-    task_lower = task.lower()
-    output_lower = agent_output.lower()
-    task_keywords = set(task_lower.split())
-    if task_keywords:
-        overlap = len(task_keywords & set(output_lower.split())) / len(task_keywords)
-        score += 0.3 * overlap
-
-    # 3. Expected behavior coverage (0.5)
-    expected_lower = expected.lower()
-    if expected_lower.strip():
-        expected_words = set(expected_lower.split())
-        output_words = set(output_lower.split())
-        overlap = len(expected_words & output_words) / max(1, len(expected_words))
-        score += 0.5 * overlap
+    # 2. Keyword overlap with expected behavior (0-0.4)
+    expected_words = _words(expected)
+    if expected_words:
+        overlap = len(expected_words & output_words) / len(expected_words)
+        score += 0.4 * overlap
     else:
-        score += 0.3  # Partial credit if no expected behavior provided
+        score += 0.15  # Partial if no expected behavior
 
-    return min(1.0, max(0.0, score))
+    # 3. Task relevance (0-0.15)
+    task_words = _words(task)
+    if task_words:
+        overlap = len(task_words & output_words) / len(task_words)
+        score += 0.15 * overlap
+
+    # 4. Procedure following (0-0.2)
+    # Check if key action words from skill appear in output
+    if skill_text.strip():
+        skill_lower = skill_text.lower()
+        # Extract numbered steps and bullet point keywords
+        step_keywords = set()
+        for match in re.finditer(r'(?:^|\n)\s*(?:\d+\.|[-*])\s+(.+?)(?:\n|$)', skill_lower):
+            line = match.group(1).strip()
+            # Take first 3 significant words from each step
+            words = [w for w in re.findall(r'\b[a-z]{3,}\b', line)][:3]
+            step_keywords.update(words)
+        if step_keywords:
+            overlap = len(step_keywords & output_words) / len(step_keywords)
+            score += 0.2 * overlap
+    else:
+        score += 0.1  # Partial if no skill text
+
+    # 5. Length normalization penalty (0-0.1)
+    # Very short (<10 words) or very long (>500 words) responses get penalized
+    word_count = len(output_words)
+    if word_count < 5:
+        score -= 0.15
+    elif word_count < 10:
+        score -= 0.05
+    elif word_count > 500:
+        score -= 0.1
+    elif word_count > 300:
+        score -= 0.05
+
+    return max(0.0, min(1.0, score))
 
 
 def _parse_score(value) -> float:
