@@ -268,7 +268,41 @@ def evolve(
     avg_evolved = sum(evolved_scores) / max(1, len(evolved_scores))
     improvement = avg_evolved - avg_baseline
 
-    # ── 9. Report results ───────────────────────────────────────────────
+    # -- 8b. Trust validation (Sub-Project A, additive, fail-open) -------
+    try:
+        from evolution.core.overfit_guard import check_overfit
+        from evolution.core.trust_report import build_trust_report, render_text
+
+        _overfit = check_overfit(
+            train_score=None,
+            val_score=avg_evolved, holdout_score=avg_baseline,
+            baseline_holdout=avg_baseline,
+            max_gap=config.overfit_max_gap,
+            regression_tolerance=config.overfit_regression_tolerance,
+        )
+        _report = build_trust_report(
+            artifact_name=skill_name,
+            train_score=None,
+            val_score=avg_evolved,
+            holdout_score=avg_baseline,
+            baseline_holdout=avg_baseline,
+            overfit=_overfit, panel=None, benchmark=None,
+            diff="",
+            trust_score_min=config.trust_score_min,
+        )
+        console.print(f"\n[dim]--- Trust Report ---[/dim]")
+        for line in render_text(_report).split("\n"):
+            console.print(f"[dim]{line}[/dim]")
+        if _overfit.is_overfit and _overfit.severity in ("moderate", "severe"):
+            console.print(
+                f"  [yellow]WARNING Candidate flagged as overfit ({_overfit.severity}) -- "
+                f"review before merge.[/yellow]"
+            )
+    except Exception as _e:
+        console.print(f"  [dim](trust validation skipped: {_e})[/dim]")
+    # -- end Sub-Project A hook -------------------------------------------
+
+    # -- 9. Report results ------------------------------------------------───────────────────
     table = Table(title="Evolution Results")
     table.add_column("Metric", style="bold")
     table.add_column("Baseline", justify="right")

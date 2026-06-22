@@ -47,6 +47,14 @@ class EvolutionConfig:
     semantic_similarity_threshold: float = 0.7  # Min cosine similarity
     embedding_model: str = "text-embedding-3-small"  # OpenAI embedding model
 
+    # Sub-Project A: Trust validation
+    overfit_max_gap: float = 0.15
+    overfit_regression_tolerance: float = 0.02
+    multi_judge_models: list = field(default_factory=list)
+    multi_judge_agreement_threshold: float = 0.6
+    trust_score_min: float = 0.6
+    benchmark_mode: str = "proxy"
+
     # Output
     output_dir: Path = field(default_factory=lambda: Path("./output"))
     create_pr: bool = True
