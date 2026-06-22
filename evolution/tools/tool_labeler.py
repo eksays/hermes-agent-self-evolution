@@ -8,7 +8,6 @@ import dspy
 
 from evolution.core.config import EvolutionConfig
 from evolution.core.external_importers import _parse_scoring_json
-from evolution.tools.tool_dataset import ToolSelectionExample
 
 _TOOL_NAME_RE = re.compile(r"\buse\s+([a-z_]+)\b", re.IGNORECASE)
 
@@ -45,7 +44,8 @@ class ToolLabeler:
 
     def label(self, episodes: list, all_tools: list[tuple[str, str]],
               max_examples: int = 100,
-              evolve_params: bool = False) -> list[ToolSelectionExample]:
+              evolve_params: bool = False) -> list:
+        from evolution.tools.tool_dataset import ToolSelectionExample  # avoid circular import
         """Label episodes and build ToolSelectionExamples.
 
         Args:

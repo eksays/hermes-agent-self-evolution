@@ -11,6 +11,9 @@ from typing import Optional
 import dspy
 
 from evolution.core.config import EvolutionConfig
+from evolution.core.dataset_quality import improve_dataset
+from evolution.core.trajectory_miner import TrajectoryMiner
+from evolution.tools.tool_labeler import ToolLabeler
 
 
 @dataclass
@@ -74,6 +77,20 @@ class ToolSelectionDataset:
         ]
 
 
+def _split_examples(examples: list[ToolSelectionExample],
+                     config: EvolutionConfig) -> ToolSelectionDataset:
+    """Shuffle and split examples into train/val/holdout per config ratios."""
+    random.shuffle(examples)
+    total = len(examples)
+    n_train = max(1, int(total * config.train_ratio))
+    n_val = max(1, int(total * config.val_ratio))
+    return ToolSelectionDataset(
+        train=examples[:n_train],
+        val=examples[n_train:n_train + n_val],
+        holdout=examples[n_train + n_val:],
+    )
+
+
 def _parse_triples(raw_text: str) -> list:
     """Parse a JSON (or Python-literal) array of triples from LLM output."""
     try:
@@ -110,6 +127,27 @@ class ToolDatasetBuilder:
         self.config = config
         self.generator = dspy.ChainOfThought(self.GenerateTriples)
 
+    def build_from_sessions(self, all_tools: list, *, evolve_params=False,
+                            max_examples=100, min_real=12,
+                            session_dir=None) -> ToolSelectionDataset:
+        """Build dataset from real sessions, falling back to synthetic on cold-start."""
+        episodes = TrajectoryMiner.extract_episodes(session_dir=session_dir)
+        labeler = ToolLabeler(self.config)
+        examples = labeler.label(
+            episodes, all_tools,
+            max_examples=max_examples, evolve_params=evolve_params,
+        )
+        examples, _report = improve_dataset(
+            examples,
+            key_fn=lambda e: e.task,
+            kind_fn=lambda e: e.kind,
+            validator_fn=lambda e: bool(e.task and e.correct_tool),
+        )
+        if len(examples) < min_real:
+            synth = self.generate(all_tools).all_examples
+            examples = examples + synth
+        return _split_examples(examples, self.config)
+
     def generate(self, all_tools: list, num_cases: Optional[int] = None) -> ToolSelectionDataset:
         n = num_cases or max(20, self.config.eval_dataset_size)
         overview = "\n".join(f"- {name}: {desc}" for name, desc in all_tools)
@@ -131,12 +169,4 @@ class ToolDatasetBuilder:
             if c.get("task") and c.get("correct_tool")
         ]
 
-        random.shuffle(examples)
-        total = len(examples)
-        n_train = max(1, int(total * self.config.train_ratio))
-        n_val = max(1, int(total * self.config.val_ratio))
-        return ToolSelectionDataset(
-            train=examples[:n_train],
-            val=examples[n_train:n_train + n_val],
-            holdout=examples[n_train + n_val:],
-        )
+        return _split_examples(examples, self.config)
