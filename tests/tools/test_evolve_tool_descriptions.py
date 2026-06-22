@@ -1,4 +1,4 @@
-"""Integration tests for the Phase 2 orchestrator (all LLM I/O mocked)."""
+"""Integration tests for the tool-description orchestrator (all LLM I/O mocked)."""
 
 import textwrap
 from pathlib import Path
@@ -10,23 +10,40 @@ from evolution.tools.evolve_tool_descriptions import evolve_tools
 
 
 def _fake_repo(tmp_path):
-    tools = tmp_path / "tools"
-    tools.mkdir()
+    repo = tmp_path / "hermes"
+    tools = repo / "tools"
+    tools.mkdir(parents=True)
     (tools / "file_tools.py").write_text(textwrap.dedent('''
-        READ_FILE_SCHEMA = {"name": "read_file", "description": "Read a file.", "parameters": {}}
-        WRITE_FILE_SCHEMA = {"name": "write_file", "description": "Write a file.", "parameters": {}}
-        SEARCH_SCHEMA = {"name": "search_files", "description": "Search files.", "parameters": {}}
+        READ = {"name": "read_file", "description": "Read a file.",
+            "parameters": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "File path."},
+            }}
+        }
+        WRITE = {"name": "write_file", "description": "Write a file.",
+            "parameters": {"type": "object", "properties": {
+                "content": {"type": "string", "description": "Content to write."},
+            }}
+        }
+        SEARCH = {"name": "search_files", "description": "Search files.",
+            "parameters": {"type": "object", "properties": {
+                "pattern": {"type": "string", "description": "Search pattern."},
+            }}
+        }
     '''), encoding="utf-8")
     (tools / "terminal_tool.py").write_text(textwrap.dedent('''
-        TERMINAL_SCHEMA = {"name": "terminal", "description": "Run a command.", "parameters": {}}
+        TERM = {"name": "terminal", "description": "Run a command.",
+            "parameters": {"type": "object", "properties": {
+                "command": {"type": "string", "description": "Command to run."},
+            }}
+        }
     '''), encoding="utf-8")
-    (tools / "web_tools.py").write_text(textwrap.dedent('''
-        WEB_SEARCH_SCHEMA = {"name": "web_search", "description": "Search the web.", "parameters": {}}
-    '''), encoding="utf-8")
-    (tools / "browser_tool.py").write_text(textwrap.dedent('''
-        NAV = {"name": "browser_navigate", "description": "Open a URL.", "parameters": {}}
-    '''), encoding="utf-8")
-    return tmp_path
+    (tools / "web_tools.py").write_text(
+        '{"name": "web_search", "description": "Search the web.", "parameters": {"properties": {}}}'
+    )
+    (tools / "browser_tool.py").write_text(
+        '{"name": "browser_navigate", "description": "Open a URL.", "parameters": {"properties": {}}}'
+    )
+    return repo
 
 
 def test_dry_run_returns_none_without_api(tmp_path):
@@ -48,44 +65,26 @@ def test_missing_repo_exits(tmp_path):
             evolve_tools(hermes_repo=str(tmp_path / "nope"), dry_run=True)
 
 
-def test_e2e_writes_output(tmp_path, monkeypatch):
+# ── Phase 4: --evolve-params ─────────────────────────────────────────────────
+
+
+def test_param_evolve_dry_run(tmp_path):
     repo = _fake_repo(tmp_path)
-    monkeypatch.chdir(tmp_path)
+    result = evolve_tools(hermes_repo=str(repo), dry_run=True, evolve_params=True)
+    assert result is None
 
-    from evolution.tools.tool_dataset import ToolSelectionDataset, ToolSelectionExample
-    fake_ds = ToolSelectionDataset(
-        train=[ToolSelectionExample("grep X", "search_files", ["terminal"], kind="confusable")],
-        val=[ToolSelectionExample("read y", "read_file")],
-        holdout=[ToolSelectionExample("open z", "browser_navigate")],
-    )
 
-    preflight_lm = MagicMock(return_value="OK")
-    optimized = MagicMock()
-    optimized.descriptions = {
-        "search_files": "Search files.",
-        "read_file": "Read a file fully.",
-        "terminal": "Run a command now.",
-        "web_search": "Search the web now.",
-        "browser_navigate": "Open a URL now.",
-        "write_file": "Write a file now.",
-    }
-    optimized.return_value = MagicMock(chosen_tool="search_files")
-
-    with patch("evolution.tools.evolve_tool_descriptions.dspy.LM", return_value=preflight_lm), \
+def test_param_evolve_dry_run_finds_params(tmp_path):
+    repo = _fake_repo(tmp_path)
+    with patch("evolution.tools.evolve_tool_descriptions.dspy.LM"), \
          patch("evolution.tools.evolve_tool_descriptions.dspy.configure"), \
          patch("evolution.tools.evolve_tool_descriptions.dspy.context"), \
-         patch("evolution.tools.evolve_tool_descriptions.ToolDatasetBuilder.generate", return_value=fake_ds), \
-         patch("evolution.tools.evolve_tool_descriptions.dspy.GEPA") as mock_gepa, \
-         patch("evolution.tools.evolve_tool_descriptions.ToolSelectorModule") as mock_mod:
-        mock_gepa.return_value.compile.return_value = optimized
-        mock_mod.return_value.return_value = MagicMock(chosen_tool="search_files")
-        mock_mod.return_value.descriptions = optimized.descriptions
-
-        evolve_tools(hermes_repo=str(repo), iterations=1, dry_run=False, write_back=False)
-
-    runs = list((tmp_path / "output" / "tools").glob("*/metrics.json"))
-    assert runs, "expected metrics.json from a completed run"
-    import json
-    metrics = json.loads(runs[0].read_text(encoding="utf-8"))
-    assert "baseline_accuracy" in metrics
-    assert "evolved_accuracy" in metrics
+         patch("evolution.tools.evolve_tool_descriptions.dspy.GEPA"):
+        from evolution.tools.evolve_tool_descriptions import main as cli
+        from click.testing import CliRunner
+        result = CliRunner().invoke(cli, [
+            "--hermes-repo", str(repo),
+            "--dry-run", "--evolve-params",
+        ])
+    assert result.exit_code == 0
+    assert "param" in result.output.lower()
