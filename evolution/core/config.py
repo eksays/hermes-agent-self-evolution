@@ -10,8 +10,11 @@ from typing import Optional
 class EvolutionConfig:
     """Configuration for a self-evolution optimization run."""
 
-    # hermes-agent repo path
-    hermes_agent_path: Path = field(default_factory=lambda: get_hermes_agent_path())
+    # hermes-agent repo path. Discovered lazily and non-fatally so the config
+    # can be constructed even when no repo is present (e.g. unit tests, or
+    # callers that pass an explicit path). Use resolve_hermes_agent_path() when
+    # an explicit override should win, or get_hermes_agent_path() to require one.
+    hermes_agent_path: Optional[Path] = field(default_factory=lambda: _discover_hermes_agent_path())
 
     # Optimization parameters
     iterations: int = 10
@@ -47,6 +50,19 @@ class EvolutionConfig:
     # Output
     output_dir: Path = field(default_factory=lambda: Path("./output"))
     create_pr: bool = True
+
+
+def _discover_hermes_agent_path() -> Optional[Path]:
+    """Best-effort hermes-agent repo discovery that never raises.
+
+    Returns the discovered path, or None when no repo can be found. Used as
+    the EvolutionConfig default so construction never crashes; callers that
+    truly require the repo should use get_hermes_agent_path().
+    """
+    try:
+        return get_hermes_agent_path()
+    except FileNotFoundError:
+        return None
 
 
 def get_hermes_agent_path() -> Path:
@@ -98,3 +114,17 @@ def resolve_model(model_name: str) -> str:
     """
     key = model_name.lower().strip()
     return MODEL_ALIASES.get(key, model_name)
+
+
+def resolve_hermes_agent_path(hermes_repo: Optional[str] = None) -> Path:
+    """Return the hermes-agent repo path, honoring an explicit override.
+
+    An explicit path (for example from ``--hermes-repo``) is expanded and used
+    as-is, taking precedence over auto-discovery. This lets callers point at a
+    repo in a non-default location without the tool crashing just because
+    ``~/.hermes/hermes-agent`` happens to be absent. When no override is given,
+    falls back to :func:`get_hermes_agent_path`.
+    """
+    if hermes_repo:
+        return Path(hermes_repo).expanduser()
+    return get_hermes_agent_path()
