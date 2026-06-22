@@ -65,3 +65,40 @@ def read_description_from_source(source_path: Path, tool_name: str) -> Optional[
             if desc_node is not None:
                 return _resolve_description(desc_node, consts)
     return None
+
+
+# ── Repo-wide scanning ────────────────────────────────────────────────────────
+
+from evolution.tools.targets import TARGET_TOOLS
+
+
+def _scan_repo_descriptions(hermes_repo: Path) -> dict:
+    """Return {tool_name: description} for every schema dict found under tools/."""
+    tools_dir = Path(hermes_repo) / "tools"
+    found = {}
+    for src in sorted(tools_dir.glob("*.py")):
+        try:
+            tree = ast.parse(src.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        consts = _string_constants(tree)
+        for d in _iter_schema_dicts(tree):
+            name_node = _dict_get(d, "name")
+            desc_node = _dict_get(d, "description")
+            if isinstance(name_node, ast.Constant) and isinstance(name_node.value, str) \
+                    and desc_node is not None:
+                desc = _resolve_description(desc_node, consts)
+                if desc is not None and name_node.value not in found:
+                    found[name_node.value] = desc
+    return found
+
+
+def read_target_descriptions(hermes_repo: Path) -> dict:
+    """Return {tool_name: description} for the TARGET_TOOLS that were found."""
+    all_found = _scan_repo_descriptions(hermes_repo)
+    return {name: all_found[name] for name in TARGET_TOOLS if name in all_found}
+
+
+def list_all_tools(hermes_repo: Path) -> list:
+    """Return [(tool_name, description), ...] for ALL tools found in the repo."""
+    return sorted(_scan_repo_descriptions(hermes_repo).items())
