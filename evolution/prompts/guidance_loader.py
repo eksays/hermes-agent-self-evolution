@@ -7,8 +7,11 @@ Phase 2's ``tool_loader.py`` but adapted for assignment-from-tuple/string.
 """
 
 import ast
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from evolution.prompts.targets import TARGET_GUIDANCE
 
 
 # ---------------------------------------------------------------------------
@@ -61,3 +64,59 @@ def read_guidance_from_source(source_path: Path, constant_name: str) -> Optional
     tree = ast.parse(Path(source_path).read_text(encoding="utf-8"))
     consts = _string_constants(tree)
     return consts.get(constant_name, None)
+
+
+# ---------------------------------------------------------------------------
+# Scan repo + write-back  (Task 3)
+# ---------------------------------------------------------------------------
+
+
+def _scan_repo_guidance(hermes_repo: Path) -> dict:
+    """Return {constant_name: text} for every string constant in agent/prompt_builder.py."""
+    src = Path(hermes_repo) / "agent" / "prompt_builder.py"
+    if not src.exists():
+        return {}
+    try:
+        tree = ast.parse(src.read_text(encoding="utf-8"))
+    except (SyntaxError, UnicodeDecodeError):
+        return {}
+    return _string_constants(tree)
+
+
+def read_target_guidance(hermes_repo: Path) -> dict:
+    """Return {constant_name: guidance_text} for TARGET_GUIDANCE that were found."""
+    all_found = _scan_repo_guidance(hermes_repo)
+    return {name: all_found[name] for name in TARGET_GUIDANCE if name in all_found}
+
+
+def list_all_guidance(hermes_repo: Path) -> list:
+    """Return [(constant_name, text), ...] for ALL constants found in prompt_builder.py."""
+    return sorted(_scan_repo_guidance(hermes_repo).items())
+
+
+@dataclass
+class GuidanceWriteResult:
+    """Outcome of a single write-back attempt."""
+    status: str  # "written" | "not_found" | "ambiguous"
+    message: str = ""
+
+
+def write_guidance_to_source(
+    source_path: Path, baseline_text: str, evolved_text: str
+) -> GuidanceWriteResult:
+    """Replace the exact baseline guidance literal with the evolved text.
+
+    Refuses (no write) if the baseline literal is absent or non-unique.
+    Returns a GuidanceWriteResult; never raises on ambiguity.
+    """
+    path = Path(source_path)
+    text = path.read_text(encoding="utf-8")
+    needle = '"' + baseline_text + '"'
+    count = text.count(needle)
+    if count == 0:
+        return GuidanceWriteResult("not_found", f"baseline literal not found in {path.name}")
+    if count > 1:
+        return GuidanceWriteResult("ambiguous", f"baseline literal appears {count}x in {path.name}")
+    replacement = '"' + evolved_text + '"'
+    path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+    return GuidanceWriteResult("written", f"updated {path.name}")

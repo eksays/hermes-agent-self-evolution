@@ -65,3 +65,77 @@ def test_read_missing_guidance_returns_none(tmp_path):
         OTHER_CONSTANT = "something"
     ''')
     assert read_guidance_from_source(src, "MEMORY_GUIDANCE") is None
+
+
+# ---------------------------------------------------------------------------
+# Scan repo + write-back (Task 3)
+# ---------------------------------------------------------------------------
+
+def _make_repo(tmp_path):
+    agent = Path(tmp_path) / "agent"
+    agent.mkdir()
+    (agent / "prompt_builder.py").write_text(textwrap.dedent('''
+        MEMORY_GUIDANCE = (
+            "Keep memory compact. "
+            "Do not save temporary state."
+        )
+        TASK_COMPLETION_GUIDANCE = "Finish the job completely."
+        SKILLS_GUIDANCE = "Save reusable workflows."
+        TOOL_USE_ENFORCEMENT_GUIDANCE = (
+            "Use tools instead of describing."
+        )
+        OPENAI_MODEL_EXECUTION_GUIDANCE = "Be precise with GPT."
+        GOOGLE_MODEL_OPERATIONAL_GUIDANCE = "Be concise with Gemini."
+        DEFAULT_AGENT_IDENTITY = "You are Hermes Agent."
+        SESSION_SEARCH_GUIDANCE = "Search before asking."
+    '''), encoding="utf-8")
+    return tmp_path
+
+
+def test_read_target_guidance_finds_all_six(tmp_path):
+    from evolution.prompts.guidance_loader import read_target_guidance
+    repo = _make_repo(tmp_path)
+    guidance = read_target_guidance(repo)
+    assert set(guidance.keys()) == {
+        "MEMORY_GUIDANCE", "TASK_COMPLETION_GUIDANCE", "SKILLS_GUIDANCE",
+        "TOOL_USE_ENFORCEMENT_GUIDANCE", "OPENAI_MODEL_EXECUTION_GUIDANCE",
+        "GOOGLE_MODEL_OPERATIONAL_GUIDANCE",
+    }
+    assert "Keep memory compact" in guidance["MEMORY_GUIDANCE"]
+
+
+def test_list_all_guidance_includes_frozen(tmp_path):
+    from evolution.prompts.guidance_loader import list_all_guidance
+    repo = _make_repo(tmp_path)
+    all_g = dict(list_all_guidance(repo))
+    assert "DEFAULT_AGENT_IDENTITY" in all_g
+    assert "MEMORY_GUIDANCE" in all_g
+
+
+def test_write_guidance_replaces_unique_literal(tmp_path):
+    from evolution.prompts.guidance_loader import write_guidance_to_source
+    src = _write(tmp_path, "prompt_builder.py", '''
+        MEMORY_GUIDANCE = "old guidance text"
+    ''')
+    result = write_guidance_to_source(src, "old guidance text", "new guidance text")
+    assert result.status == "written"
+    assert "new guidance text" in src.read_text(encoding="utf-8")
+
+
+def test_write_guidance_skips_when_not_found(tmp_path):
+    from evolution.prompts.guidance_loader import write_guidance_to_source
+    src = _write(tmp_path, "prompt_builder.py", '''
+        MEMORY_GUIDANCE = "something"
+    ''')
+    result = write_guidance_to_source(src, "nonexistent", "new")
+    assert result.status == "not_found"
+
+
+def test_write_guidance_skips_when_ambiguous(tmp_path):
+    from evolution.prompts.guidance_loader import write_guidance_to_source
+    src = _write(tmp_path, "dup.py", '''
+        A = "dup text"
+        B = "dup text"
+    ''')
+    result = write_guidance_to_source(src, "dup text", "new text")
+    assert result.status == "ambiguous"
