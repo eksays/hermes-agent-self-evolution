@@ -34,8 +34,12 @@ def evolve_tools(
     dry_run: bool = False,
     write_back: bool = False,
     skip_semantic: bool = False,
+    evolve_params: bool = False,
 ):
-    """Evolve the confusable-cluster tool descriptions. Returns None on dry-run/abort."""
+    """Evolve the confusable-cluster tool descriptions. Returns None on dry-run/abort.
+
+    When evolve_params=True, also evolves per-parameter descriptions (Phase 4).
+    """
     config = EvolutionConfig(
         iterations=iterations, optimizer_model=optimizer_model,
         eval_model=eval_model, judge_model=eval_model,
@@ -61,10 +65,21 @@ def evolve_tools(
     console.print(f"  Found {len(baseline)}/{len(TARGET_TOOLS)} target tools; "
                   f"{len(all_tools)} tools total")
 
+    # Phase 4: load parameter descriptions
+    target_params = {}
+    if evolve_params:
+        from evolution.tools.tool_loader import read_all_param_descriptions
+        all_params = read_all_param_descriptions(repo)
+        target_params = {t: all_params[t] for t in TARGET_TOOLS if t in all_params and all_params[t]}
+        console.print(f"  Loaded param descriptions for {len(target_params)} target tools "
+                      f"({sum(len(v) for v in target_params.values())} params)")
+
     if dry_run:
+        msg = (f"Would generate dataset, run GEPA ({iterations} iters), "
+               f"validate constraints{', write back' if write_back else ''}"
+               f"{', evolve params' if evolve_params else ''}.")
         console.print("[bold green]DRY RUN — setup validated.[/bold green]")
-        console.print(f"  Would generate dataset, run GEPA ({iterations} iters), "
-                      f"validate constraints{', write back' if write_back else ''}.")
+        console.print(f"  {msg}")
         return None
 
     # Pre-flight
@@ -181,10 +196,13 @@ def evolve_tools(
 @click.option("--write-back", is_flag=True, default=False,
               help="Apply evolved descriptions to tools/*.py (default: report-only)")
 @click.option("--skip-semantic", is_flag=True, default=False)
-def main(iterations, optimizer_model, eval_model, hermes_repo, dry_run, write_back, skip_semantic):
+@click.option("--evolve-params", is_flag=True, default=False,
+              help="Also evolve per-parameter descriptions (Phase 4)")
+def main(iterations, optimizer_model, eval_model, hermes_repo, dry_run, write_back, skip_semantic, evolve_params):
     evolve_tools(
         iterations=iterations, optimizer_model=optimizer_model, eval_model=eval_model,
         hermes_repo=hermes_repo, dry_run=dry_run, write_back=write_back, skip_semantic=skip_semantic,
+        evolve_params=evolve_params,
     )
 
 
