@@ -102,3 +102,40 @@ def read_target_descriptions(hermes_repo: Path) -> dict:
 def list_all_tools(hermes_repo: Path) -> list:
     """Return [(tool_name, description), ...] for ALL tools found in the repo."""
     return sorted(_scan_repo_descriptions(hermes_repo).items())
+
+
+# ── Safe write-back ───────────────────────────────────────────────────────────
+
+from dataclasses import dataclass
+
+
+@dataclass
+class WriteResult:
+    """Outcome of a single write-back attempt."""
+    status: str  # "written" | "not_found" | "ambiguous"
+    message: str = ""
+
+
+def write_description_to_source(
+    source_path: Path, baseline_desc: str, evolved_desc: str
+) -> WriteResult:
+    """Replace the exact baseline description literal with the evolved text.
+
+    Refuses (no write) if the baseline literal is absent or non-unique. We match
+    the JSON-style double-quoted form, which is how descriptions are written in
+    hermes-agent schema dicts. Returns a WriteResult; never raises on ambiguity.
+    """
+    path = Path(source_path)
+    text = path.read_text(encoding="utf-8")
+
+    # Match the double-quoted literal form so we don't touch comments/prose.
+    needle = '"' + baseline_desc + '"'
+    count = text.count(needle)
+    if count == 0:
+        return WriteResult("not_found", f"baseline literal not found in {path.name}")
+    if count > 1:
+        return WriteResult("ambiguous", f"baseline literal appears {count}x in {path.name}")
+
+    replacement = '"' + evolved_desc + '"'
+    path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+    return WriteResult("written", f"updated {path.name}")

@@ -96,3 +96,37 @@ def test_list_all_tools_includes_nontarget(tmp_path):
     assert "vision_analyze" in all_tools
     assert "read_file" in all_tools
     assert all_tools["read_file"] == "Read a file."
+
+
+# ── Task 4: safe write-back ───────────────────────────────────────────────────
+
+from evolution.tools.tool_loader import write_description_to_source, WriteResult
+
+
+def test_write_back_replaces_unique_literal(tmp_path):
+    src = _write(tmp_path, "file_tools.py", '''
+        READ_FILE_SCHEMA = {"name": "read_file", "description": "Read a file.", "parameters": {}}
+    ''')
+    result = write_description_to_source(src, "Read a file.", "Read a text file with line numbers.")
+    assert result.status == "written"
+    assert "Read a text file with line numbers." in src.read_text(encoding="utf-8")
+    assert "Read a file." not in src.read_text(encoding="utf-8")
+
+
+def test_write_back_skips_when_not_found(tmp_path):
+    src = _write(tmp_path, "file_tools.py", '''
+        READ_FILE_SCHEMA = {"name": "read_file", "description": "Read a file.", "parameters": {}}
+    ''')
+    result = write_description_to_source(src, "Nonexistent baseline.", "new text")
+    assert result.status == "not_found"
+    assert "new text" not in src.read_text(encoding="utf-8")
+
+
+def test_write_back_skips_when_ambiguous(tmp_path):
+    src = _write(tmp_path, "dup.py", '''
+        A = {"name": "a", "description": "dup text", "parameters": {}}
+        B = {"name": "b", "description": "dup text", "parameters": {}}
+    ''')
+    result = write_description_to_source(src, "dup text", "new text")
+    assert result.status == "ambiguous"
+    assert "new text" not in src.read_text(encoding="utf-8")
