@@ -16,9 +16,17 @@ HISTORY_PATH = Path(__file__).resolve().parent / ".run_history.jsonl"
 
 
 def _build_phase_funcs(hermes_repo: str, iterations: int,
-                       write_back: bool) -> dict:
+                       write_back: bool, skills: str | None = None) -> dict:
     """Build the mapping of phase_name to evolve function."""
     funcs = {}
+
+    def _skills():
+        from evolution.skills.evolve_skill import evolve
+        return evolve(
+            skill_name=skills or "github-code-review",
+            iterations=iterations, eval_source="synthetic",
+            hermes_repo=hermes_repo, dry_run=False,
+        )
 
     def _tools():
         from evolution.tools.evolve_tool_descriptions import evolve_tools
@@ -42,6 +50,7 @@ def _build_phase_funcs(hermes_repo: str, iterations: int,
             evolve_params=True,
         )
 
+    funcs["skills"] = _skills
     funcs["tools"] = _tools
     funcs["guidance"] = _guidance
     funcs["params"] = _params
@@ -49,14 +58,28 @@ def _build_phase_funcs(hermes_repo: str, iterations: int,
 
 
 @click.command()
+@click.option("--daemon", is_flag=True, default=False, help="Run in daemon mode")
+@click.option("--daemon-interval", default=60, type=int, help="Minutes between daemon cycles")
 @click.option("--phases", default=None, help="Comma-separated phases to run (default: all pending)")
 @click.option("--force", is_flag=True, help="Run all phases even if no drift detected")
 @click.option("--iterations", default=10, help="GEPA iterations per phase")
 @click.option("--hermes-repo", default=None, help="Path to hermes-agent repo")
 @click.option("--dry-run", is_flag=True, help="Enumerate phases without evolving")
 @click.option("--write-back", is_flag=True, help="Apply changes to hermes-agent repo")
-def main(phases, force, iterations, hermes_repo, dry_run, write_back):
+@click.option("--skills", default=None, help="Skill name to evolve (default: first found)")
+def main(phases, force, iterations, hermes_repo, dry_run, write_back, skills, daemon, daemon_interval):
     """Run the continuous evolution loop -- evolve all pending targets."""
+    if daemon:
+        from evolution.loop.daemon import run_daemon
+        run_daemon(
+            interval_minutes=daemon_interval,
+            hermes_repo=hermes_repo,
+            force=force,
+            iterations=iterations,
+            write_back=write_back,
+        )
+        return
+
     console.print("[bold cyan]Hermes Self-Evolution -- Continuous Loop[/bold cyan]\n")
 
     history = load_history(HISTORY_PATH)
@@ -79,7 +102,7 @@ def main(phases, force, iterations, hermes_repo, dry_run, write_back):
         console.print("\n[bold green]DRY RUN — would execute phases above.[/bold green]")
         return
 
-    phase_funcs = _build_phase_funcs(hermes_repo, iterations, write_back)
+    phase_funcs = _build_phase_funcs(hermes_repo, iterations, write_back, skills)
 
     console.print(f"\n[bold]Running {len(pending)} phases...[/bold]")
     result = run_phases(phase_funcs, phases=pending)
