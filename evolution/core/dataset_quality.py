@@ -55,13 +55,14 @@ def validate_examples(examples: list, validator_fn) -> tuple[list, int]:
     return kept, len(examples) - len(kept)
 
 
-def improve_dataset(examples, key_fn, kind_fn, validator_fn) -> tuple[list, QualityReport]:
+def improve_dataset(examples, key_fn, kind_fn, validator_fn,
+                     max_ratio: float = 3.0) -> tuple[list, QualityReport]:
     """Run dedup → validate → balance, return (cleaned, report)."""
     original = len(examples)
     valid, dropped = validate_examples(examples, validator_fn)
     deduped = dedup_examples(valid, key_fn)
     after_dedup = len(deduped)
-    balanced = balance_by_kind(deduped, kind_fn)
+    balanced = balance_by_kind(deduped, kind_fn, max_ratio=max_ratio)
     dist: dict = {}
     for ex in balanced:
         k = kind_fn(ex)

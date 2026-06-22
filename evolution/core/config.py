@@ -60,11 +60,6 @@ class EvolutionConfig:
     min_real_examples: int = 12
     dedup_jaccard_threshold: float = 0.9
     balance_max_ratio: float = 3.0
-    overfit_regression_tolerance: float = 0.02
-    multi_judge_models: list = field(default_factory=list)
-    multi_judge_agreement_threshold: float = 0.6
-    trust_score_min: float = 0.6
-    benchmark_mode: str = "proxy"
 
     # Output
     output_dir: Path = field(default_factory=lambda: Path("./output"))

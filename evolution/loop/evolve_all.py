@@ -50,10 +50,21 @@ def _build_phase_funcs(hermes_repo: str, iterations: int,
             evolve_params=True,
         )
 
+    def _code():
+        from evolution.code.evolve_code import evolve_code
+        return evolve_code(
+            tool_name="file_tools",
+            iterations=iterations,
+            hermes_repo=hermes_repo,
+            write_back=write_back,
+            dry_run=False,
+        )
+
     funcs["skills"] = _skills
     funcs["tools"] = _tools
     funcs["guidance"] = _guidance
     funcs["params"] = _params
+    funcs["code"] = _code
     return funcs
 
 

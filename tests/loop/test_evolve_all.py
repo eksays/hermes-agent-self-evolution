@@ -52,7 +52,7 @@ def test_up_to_date_message():
         mock_load.return_value = MagicMock()
         type(mock_load.return_value).runs = PropertyMock(return_value=[])
         mock_load.return_value.latest_per_phase.return_value = {
-            "skills": "r1", "tools": "r1", "guidance": "r1", "params": "r1",
+            "skills": "r1", "tools": "r1", "guidance": "r1", "params": "r1", "code": "r1",
         }
         result = runner.invoke(main)
     assert result.exit_code == 0

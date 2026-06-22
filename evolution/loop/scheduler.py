@@ -4,13 +4,14 @@ Supports presence-based (legacy) and drift-aware (Sub-Project C) scheduling.
 """
 from typing import Any
 
-PHASE_ORDER = ["skills", "tools", "guidance", "params"]
+PHASE_ORDER = ["skills", "tools", "guidance", "params", "code"]
 
 PHASE_DEPENDENCIES = {
     "skills": [],
     "tools": [],
     "guidance": [],
     "params": ["tools"],
+    "code": [],
 }
 
 

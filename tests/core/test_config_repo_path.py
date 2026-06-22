@@ -36,18 +36,28 @@ def _make_skill_repo(tmp_path) -> Path:
 def test_resolve_honors_explicit_path_without_default(tmp_path, monkeypatch):
     from evolution.core.config import resolve_hermes_agent_path
 
+    fake_home = tmp_path / "empty"
+    fake_home.mkdir()
     monkeypatch.delenv("HERMES_AGENT_REPO", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path / "empty"))  # no default location
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))  # Windows compat
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
 
     explicit = tmp_path / "somewhere" / "hermes-agent"
     assert resolve_hermes_agent_path(str(explicit)) == explicit
 
 
-def test_resolve_expands_user_home(monkeypatch):
+def test_resolve_expands_user_home(tmp_path, monkeypatch):
     from evolution.core.config import resolve_hermes_agent_path
 
-    monkeypatch.setenv("HOME", "/home/example")
-    assert resolve_hermes_agent_path("~/code/hermes-agent") == Path("/home/example/code/hermes-agent")
+    fake_home = tmp_path / "fakehome"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))  # Windows compat
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+
+    result = resolve_hermes_agent_path("~/code/hermes-agent")
+    assert result == fake_home / "code" / "hermes-agent"
 
 
 def test_resolve_falls_back_to_env_var_when_no_override(tmp_path, monkeypatch):
@@ -63,10 +73,17 @@ def test_resolve_falls_back_to_env_var_when_no_override(tmp_path, monkeypatch):
 
 def test_config_constructs_without_repo(tmp_path, monkeypatch):
     """A bare EvolutionConfig() must not raise when no repo is present."""
+    from evolution.core import config as config_mod
     from evolution.core.config import EvolutionConfig
 
+    fake_home = tmp_path / "empty"
+    fake_home.mkdir()
     monkeypatch.delenv("HERMES_AGENT_REPO", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path / "empty"))
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))  # Windows compat
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+    # Prevent sibling-directory fallback from finding the real repo
+    monkeypatch.setattr(config_mod, "__file__", str(tmp_path / "fake" / "core" / "config.py"))
 
     config = EvolutionConfig()  # must not raise
     assert config.hermes_agent_path is None
@@ -87,8 +104,12 @@ def test_cli_dry_run_honors_explicit_repo(tmp_path, monkeypatch):
     location is absent. This is the exact scenario the bug broke."""
     from evolution.skills.evolve_skill import main
 
+    fake_home = tmp_path / "empty"
+    fake_home.mkdir()
     monkeypatch.delenv("HERMES_AGENT_REPO", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path / "empty"))
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))  # Windows compat
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
     repo = _make_skill_repo(tmp_path)
 
     result = CliRunner().invoke(

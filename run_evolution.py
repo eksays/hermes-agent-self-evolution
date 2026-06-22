@@ -9,8 +9,12 @@ import os
 import sys
 
 # ── 1. Set 9router credentials BEFORE any imports ────────────────────────────
-API_BASE = "http://localhost:20128/v1"
-API_KEY = "sk-2783c61019b4473f-vnfvuc-1859b2fb"
+API_BASE = os.environ.get("OPENAI_API_BASE", "http://localhost:20128/v1")
+API_KEY = os.environ.get("OPENAI_API_KEY", "")
+
+if not API_KEY:
+    print("ERROR: OPENAI_API_KEY not set. Export it or add to .env")
+    sys.exit(1)
 
 os.environ["OPENAI_API_BASE"] = API_BASE
 os.environ["OPENAI_API_KEY"] = API_KEY
@@ -24,7 +28,10 @@ os.environ["FORCE_COLOR"] = "0"
 os.environ["NO_COLOR"] = "1"
 os.environ["RICH_FORCE_EMOJI"] = "0"
 
-HERMES_REPO = "E:/File/Project AI Agent/Hermes Agent/hermes-agent"
+HERMES_REPO = os.environ.get("HERMES_REPO", "")
+if not HERMES_REPO:
+    print("ERROR: HERMES_REPO not set. Export it to point to your hermes-agent checkout.")
+    sys.exit(1)
 EVAL_MODEL = "openai/cc/claude-haiku-4-5-20251001"
 OPTIMIZER_MODEL = "openai/cc/claude-sonnet-4-6"
 

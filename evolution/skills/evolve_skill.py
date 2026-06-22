@@ -273,8 +273,17 @@ def evolve(
         from evolution.core.overfit_guard import check_overfit
         from evolution.core.trust_report import build_trust_report, render_text
 
+        # Compute train score on the training set for honest overfit detection
+        _train_scores = []
+        for _ex in dataset.to_dspy_examples("train"):
+            with dspy.context(lm=eval_lm):
+                _pred = optimized_module(task_input=_ex.task_input)
+                _ts = skill_fitness_metric(_ex, _pred)
+                _train_scores.append(_ts)
+        _avg_train = sum(_train_scores) / max(1, len(_train_scores))
+
         _overfit = check_overfit(
-            train_score=None,
+            train_score=_avg_train,
             val_score=avg_evolved, holdout_score=avg_baseline,
             baseline_holdout=avg_baseline,
             max_gap=config.overfit_max_gap,
@@ -282,7 +291,7 @@ def evolve(
         )
         _report = build_trust_report(
             artifact_name=skill_name,
-            train_score=None,
+            train_score=_avg_train,
             val_score=avg_evolved,
             holdout_score=avg_baseline,
             baseline_holdout=avg_baseline,

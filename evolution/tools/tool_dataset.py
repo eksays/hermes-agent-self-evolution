@@ -142,6 +142,7 @@ class ToolDatasetBuilder:
             key_fn=lambda e: e.task,
             kind_fn=lambda e: e.kind,
             validator_fn=lambda e: bool(e.task and e.correct_tool),
+            max_ratio=self.config.balance_max_ratio,
         )
         if len(examples) < min_real:
             synth = self.generate(all_tools).all_examples

@@ -3,9 +3,9 @@ from evolution.loop.scheduler import select_pending_phases
 
 
 def test_force_returns_all():
-    phases = select_pending_phases({"skills": "1", "tools": "1", "guidance": "1", "params": "1"},
+    phases = select_pending_phases({"skills": "1", "tools": "1", "guidance": "1", "params": "1", "code": "1"},
                                    force=True)
-    assert len(phases) == 4
+    assert len(phases) == 5
 
 
 def test_never_run_phases_included():

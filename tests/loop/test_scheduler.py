@@ -6,18 +6,18 @@ from evolution.loop.scheduler import (
 
 
 def test_phase_order_is_complete():
-    assert len(PHASE_ORDER) == 4
-    assert PHASE_ORDER == ["skills", "tools", "guidance", "params"]
+    assert len(PHASE_ORDER) == 5
+    assert PHASE_ORDER == ["skills", "tools", "guidance", "params", "code"]
 
 
 def test_no_pending_when_all_recent():
-    latest = {"skills": "r2", "tools": "r2", "guidance": "r2", "params": "r2"}
+    latest = {"skills": "r2", "tools": "r2", "guidance": "r2", "params": "r2", "code": "r2"}
     pending = select_pending_phases(latest, force=False)
     assert pending == []
 
 
 def test_all_pending_when_force():
-    latest = {"skills": "r2", "tools": "r2", "guidance": "r2", "params": "r2"}
+    latest = {"skills": "r2", "tools": "r2", "guidance": "r2", "params": "r2", "code": "r2"}
     pending = select_pending_phases(latest, force=True)
     assert pending == PHASE_ORDER
 

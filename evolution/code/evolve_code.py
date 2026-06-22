@@ -25,18 +25,11 @@ console = Console()
 def _pytest_fitness(hermes_repo: Path, baseline_failures: int) -> float:
     """Score = 1.0 if test failures <= baseline, 0.0 if worse."""
     try:
-        result = subprocess.run(
-            ["python", "-m", "pytest", "tests/", "-q"],
-            capture_output=True, text=True,
-            cwd=str(hermes_repo),
-            timeout=300,
-        )
-        output = result.stdout + result.stderr
-        failed_count = output.count("FAILED")
-        if failed_count <= baseline_failures:
+        current_failures = _count_pytest_failures(hermes_repo)
+        if current_failures <= baseline_failures:
             return 1.0
         return 0.0
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except Exception:
         return 0.0
 
 
@@ -115,12 +108,17 @@ def evolve_code(
 def _count_pytest_failures(repo: Path) -> int:
     try:
         result = subprocess.run(
-            ["python", "-m", "pytest", "tests/", "-q"],
+            [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=no"],
             capture_output=True, text=True,
             cwd=str(repo), timeout=300,
         )
-        output = result.stdout + result.stderr
-        return output.count("FAILED")
+        # Use exit code: 0=all pass, 1=some failed, 2+=error
+        if result.returncode == 0:
+            return 0
+        # Parse "N failed" from summary line for accurate count
+        import re
+        m = re.search(r"(\d+) failed", result.stdout + result.stderr)
+        return int(m.group(1)) if m else (1 if result.returncode == 1 else 0)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return 0
 

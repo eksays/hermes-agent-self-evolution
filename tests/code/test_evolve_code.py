@@ -1,12 +1,13 @@
 """Tests for CodeEvolver — code evolution orchestrator."""
 from unittest.mock import patch, MagicMock
 from pathlib import Path
-from evolution.code import evolve_code as mod
+import evolution.code.evolve_code as mod
 
 
 def test_count_pytest_failures_parses_output():
     with patch("subprocess.run") as mock_run:
-        mock_run.return_value.stdout = "FAILED tests/test_x.py::test_a - AssertionError\n"
+        mock_run.return_value.returncode = 1
+        mock_run.return_value.stdout = "FAILED tests/test_x.py::test_a - AssertionError\n1 failed, 5 passed\n"
         mock_run.return_value.stderr = ""
         result = mod._count_pytest_failures(Path("."))
         assert result == 1
@@ -14,6 +15,7 @@ def test_count_pytest_failures_parses_output():
 
 def test_count_pytest_failures_no_failures():
     with patch("subprocess.run") as mock_run:
+        mock_run.return_value.returncode = 0
         mock_run.return_value.stdout = "10 passed\n"
         mock_run.return_value.stderr = ""
         result = mod._count_pytest_failures(Path("."))
