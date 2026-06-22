@@ -182,3 +182,46 @@ def test_read_all_param_descriptions(tmp_path):
     all_params = read_all_param_descriptions(tmp_path)
     assert "read_file" in all_params
     assert all_params["read_file"]["path"] == "File path."
+
+
+from evolution.tools.tool_loader import write_param_description_to_source
+
+
+def test_write_param_description(tmp_path):
+    src = _write(tmp_path, "file_tools.py", '''
+        SCHEMA = {"name": "read_file", "description": "Read a file.",
+            "parameters": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "File path."},
+            }}
+        }
+    ''')
+    result = write_param_description_to_source(src, "read_file", "path",
+                                                "File path.", "Absolute file path.")
+    assert result.status == "written"
+    assert "Absolute file path." in src.read_text(encoding="utf-8")
+
+
+def test_write_param_skips_when_not_found(tmp_path):
+    src = _write(tmp_path, "file_tools.py", '''
+        SCHEMA = {"name": "read_file", "description": "Read a file.",
+            "parameters": {"type": "object", "properties": {
+                "path": {"type": "string", "description": "File path."},
+            }}
+        }
+    ''')
+    result = write_param_description_to_source(src, "read_file", "path",
+                                                "Nonexistent.", "new")
+    assert result.status == "not_found"
+
+
+def test_write_param_skips_when_ambiguous(tmp_path):
+    # Two tools with same param description
+    src = _write(tmp_path, "tools.py", '''
+        A = {"name": "a", "parameters": {"properties": {
+            "x": {"description": "dup text"}}}}
+        B = {"name": "b", "parameters": {"properties": {
+            "x": {"description": "dup text"}}}}
+    ''')
+    result = write_param_description_to_source(src, "a", "x",
+                                                "dup text", "new")
+    assert result.status == "ambiguous"

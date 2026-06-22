@@ -216,3 +216,27 @@ def _extract_param_descriptions(schema_dict: ast.Dict, consts: dict) -> Optional
                     if desc is not None:
                         result[param_name] = desc
     return result
+
+
+def write_param_description_to_source(
+    source_path: Path, tool_name: str, param_name: str,
+    baseline_desc: str, evolved_desc: str
+) -> WriteResult:
+    """Replace the exact baseline param description with evolved text.
+
+    Uses a two-step match: first finds the correct tool schema's
+    parameters.properties block, then replaces the param description
+    within that block. Falls back to global literal search if the
+    block-anchored approach fails.
+    """
+    path = Path(source_path)
+    text = path.read_text(encoding="utf-8")
+    needle = '"' + baseline_desc + '"'
+    count = text.count(needle)
+    if count == 0:
+        return WriteResult("not_found", f"baseline literal not found in {path.name}")
+    if count > 1:
+        return WriteResult("ambiguous", f"baseline literal appears {count}x in {path.name}")
+    replacement = '"' + evolved_desc + '"'
+    path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+    return WriteResult("written", f"updated {path.name} param {param_name}")
