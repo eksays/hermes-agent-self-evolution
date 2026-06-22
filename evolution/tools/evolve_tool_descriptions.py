@@ -26,6 +26,16 @@ from evolution.tools.tool_fitness import (
 console = Console()
 
 
+def _build_dataset(builder, all_tools, eval_source, evolve_params, config):
+    """Select dataset source. 'auto'/'sessions' => real-with-fallback; 'synthetic' => legacy."""
+    if eval_source in ("sessions", "auto"):
+        return builder.build_from_sessions(
+            all_tools, evolve_params=evolve_params,
+            min_real=getattr(config, "min_real_examples", 12),
+        )
+    return builder.generate(all_tools)
+
+
 def evolve_tools(
     iterations: int = 10,
     optimizer_model: str = "openai/gpt-4o-mini",
@@ -35,6 +45,7 @@ def evolve_tools(
     write_back: bool = False,
     skip_semantic: bool = False,
     evolve_params: bool = False,
+    eval_source: str = "synthetic",
 ):
     """Evolve the confusable-cluster tool descriptions. Returns None on dry-run/abort.
 
@@ -93,7 +104,7 @@ def evolve_tools(
 
     # Dataset
     builder = ToolDatasetBuilder(config)
-    dataset = builder.generate(all_tools)
+    dataset = _build_dataset(builder, all_tools, eval_source, evolve_params, config)
     dataset.save(Path("datasets") / "tools")
     console.print(f"  Dataset: {len(dataset.train)} train / {len(dataset.val)} val / "
                   f"{len(dataset.holdout)} holdout")
