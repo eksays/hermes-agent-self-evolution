@@ -56,8 +56,8 @@ def _build_phase_funcs(hermes_repo: str, iterations: int,
 @click.option("--dry-run", is_flag=True, help="Enumerate phases without evolving")
 @click.option("--write-back", is_flag=True, help="Apply changes to hermes-agent repo")
 def main(phases, force, iterations, hermes_repo, dry_run, write_back):
-    """Run the continuous evolution loop — evolve all pending targets."""
-    console.print("[bold cyan]🧬 Hermes Self-Evolution — Continuous Loop[/bold cyan]\n")
+    """Run the continuous evolution loop -- evolve all pending targets."""
+    console.print("[bold cyan]Hermes Self-Evolution -- Continuous Loop[/bold cyan]\n")
 
     history = load_history(HISTORY_PATH)
     latest = history.latest_per_phase()
