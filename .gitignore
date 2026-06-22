@@ -24,3 +24,5 @@ snapshots/
 .vscode/
 *.swp
 *.swo
+output/
+evolution/loop/.run_history.jsonl
