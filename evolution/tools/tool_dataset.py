@@ -20,12 +20,16 @@ class ToolSelectionExample:
     alt_tools: list = field(default_factory=list)
     difficulty: str = "medium"
     kind: str = "clear"  # clear | confusable | no_tool
+    correct_params: dict = field(default_factory=dict)  # Sub-Project B
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "task": self.task, "correct_tool": self.correct_tool,
             "alt_tools": self.alt_tools, "difficulty": self.difficulty, "kind": self.kind,
         }
+        if self.correct_params:
+            d["correct_params"] = self.correct_params
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "ToolSelectionExample":
