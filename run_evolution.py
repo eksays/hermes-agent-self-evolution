@@ -8,6 +8,22 @@ Usage:
 import os
 import sys
 
+_USAGE = """\
+Usage: python run_evolution.py [phase]
+
+  phase: 1|skill, 2|tool, 3|guidance, 4|param, or "all" (default)
+
+Environment:
+  OPENAI_API_KEY    required - 9router/OpenAI-compatible API key
+  OPENAI_API_BASE   optional - default http://localhost:20128/v1
+  HERMES_REPO       required - path to your hermes-agent checkout
+"""
+
+# Show usage without requiring credentials to be set.
+if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
+    print(_USAGE)
+    sys.exit(0)
+
 # ── 1. Set 9router credentials BEFORE any imports ────────────────────────────
 API_BASE = os.environ.get("OPENAI_API_BASE", "http://localhost:20128/v1")
 API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -126,6 +142,14 @@ if __name__ == "__main__":
     _patch_rich_console()
 
     phase = sys.argv[1] if len(sys.argv) > 1 else "all"
+
+    _VALID_PHASES = {
+        "1", "skill", "2", "tool", "3", "guidance", "4", "param", "all",
+    }
+    if phase not in _VALID_PHASES:
+        print(f"ERROR: unknown phase '{phase}'.\n")
+        print(_USAGE)
+        sys.exit(2)
 
     if phase in ("1", "skill", "all"):
         print("=" * 60)

@@ -30,6 +30,9 @@ dev = [
 darwinian = [
     "darwinian-evolver",
 ]
+report = [
+    "reportlab>=4.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/NousResearch/hermes-agent-self-evolution"

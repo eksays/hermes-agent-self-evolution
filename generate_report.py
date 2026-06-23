@@ -1,4 +1,17 @@
-"""Generate the Phase 1 validation report as PDF."""
+"""Generate the Phase 1 validation report as PDF.
+
+Requires the optional ``report`` dependency group:
+
+    pip install -e ".[report]"
+"""
+
+try:
+    import reportlab  # noqa: F401
+except ModuleNotFoundError as _exc:  # pragma: no cover - import guard
+    raise SystemExit(
+        "reportlab is required to generate the PDF report. "
+        'Install it with:  pip install -e ".[report]"'
+    ) from _exc
 
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -500,5 +513,17 @@ def build_report(output_path: str = "reports/phase1_validation_report.pdf"):
 
 
 if __name__ == "__main__":
-    path = build_report()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Generate the Phase 1 validation report as a PDF.",
+    )
+    parser.add_argument(
+        "-o", "--output",
+        default="reports/phase1_validation_report.pdf",
+        help="Output PDF path (default: reports/phase1_validation_report.pdf)",
+    )
+    args = parser.parse_args()
+
+    path = build_report(args.output)
     print(f"Report generated: {path}")
